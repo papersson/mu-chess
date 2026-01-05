@@ -8,6 +8,7 @@ mod bitboard;
 mod game_impl;
 mod movegen;
 mod moves;
+pub mod observation;
 mod piece;
 mod position;
 mod square;

@@ -1,14 +1,10 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! ONNX Runtime inference for MuZero.
+//!
+//! This crate provides neural network inference using ONNX Runtime,
+//! implementing the `Evaluator` trait from `muzero_mcts` for use in MCTS.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod inference;
+mod evaluator;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use inference::{OnnxModel, HiddenState, InferenceResult, RecurrentResult};
+pub use evaluator::NeuralEvaluator;

@@ -4,3 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+muzero-chess = { version = "0.1.0", path = "../chess" }
+muzero-core = { version = "0.1.0", path = "../core" }
+muzero-mcts = { version = "0.1.0", path = "../mcts" }
+ndarray = "0.17.1"
+ort = "2.0.0-rc.10"

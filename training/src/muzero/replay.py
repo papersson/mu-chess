@@ -273,7 +273,7 @@ class ReplayBuffer:
     def _load_game(self, path: Path) -> GameTrajectory | None:
         """Load a game from MessagePack file."""
         with path.open("rb") as f:
-            data = msgpack.unpack(f, raw=False)
+            data = msgpack.unpack(f, raw=False, strict_map_key=False)
 
         steps = []
         for step_data in data.get("steps", []):

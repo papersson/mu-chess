@@ -53,9 +53,8 @@ impl Game for Chess {
         })
     }
 
-    fn observe(&self, _state: &Position) -> Vec<f32> {
-        // Placeholder - proper observation encoding for neural network in later phases
-        Vec::new()
+    fn observe(&self, state: &Position) -> Vec<f32> {
+        crate::observation::encode(state)
     }
 
     fn action_to_index(&self, action: Move) -> usize {

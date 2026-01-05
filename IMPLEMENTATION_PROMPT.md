@@ -18,48 +18,120 @@ Read `SPEC.md` first. It contains all architectural decisions.
 | 1 | Rust workspace + chess engine | Perft depth 5 = 4,865,609 | ✅ Done |
 | 2 | Generic MCTS + tic-tac-toe | MCTS plays TTT perfectly | ✅ Done |
 | 3 | Python training pipeline | Loss decreases on synthetic data | ✅ Done |
-| 4 | ONNX export + Rust inference | Full loop works | 🔲 Next |
-| 5 | Training + evaluation | Beats minimax >70% | 🔲 |
+| 4 | ONNX export + Rust inference | Full loop works | ✅ Done |
+| 5 | Training + evaluation | Beats minimax >70% | 🔲 Next |
 
 **Do NOT proceed until current phase validates.**
 
 ---
 
-## Phase 4 Requirements
+## Phase 4 (Completed)
 
-Phase 4 connects training to self-play. Key deliverables:
+Phase 4 connected training to self-play:
 
-### 4.1 Rust Side (`crates/muzero/`)
-- ONNX Runtime inference wrapper
-- `NeuralEvaluator` implementing the `Evaluator` trait
-- Load `initial_inference.onnx` and `recurrent_inference.onnx`
+- ✅ `crates/muzero/`: ONNX inference with `NeuralEvaluator`
+- ✅ `crates/selfplay/`: Parallel game generation with MessagePack output
+- ✅ `crates/chess/src/observation.rs`: 21-plane encoding
+- ✅ Full loop: selfplay → train → export → inference
 
-### 4.2 Rust Side (`crates/selfplay/`)
-- Parallel game generation with Rayon
-- Write games to `data/games/*.msgpack`
-- Observation encoding matching Python's 21-plane format
+---
 
-### 4.3 Deferred from Phase 3
-- **Legal moves masking**: `utils.apply_legal_moves_mask()` exists but not used in training
-- **Priority replay sampling**: `priority_alpha` config exists, uniform sampling implemented
-- **Real game data**: Training validated on synthetic data
+## Phase 5 Requirements
 
-### 4.4 Validation
+Phase 5 completes the training loop and validates against minimax.
+
+### 5.1 CRITICAL: Legal Moves Masking (SPEC P3)
+
+**Problem:** Training and inference are inconsistent:
+- Training: Softmax over all 65536 actions (illegal get probability mass)
+- Inference: Rust masks illegal moves post-hoc, renormalizes
+
+**Per SPEC.md P3:** "Illegal moves MUST be impossible (masking)"
+
+**Fix in `training/src/muzero/trainer.py`:**
+
+```python
+def _policy_loss(
+    self, policy_logits: torch.Tensor, target_policy: torch.Tensor
+) -> torch.Tensor:
+    # Derive legal mask from target (target > 0 means legal)
+    legal_mask = (target_policy > 0).float()
+
+    # Apply mask: set illegal logits to -inf before softmax
+    masked_logits = policy_logits.clone()
+    masked_logits[legal_mask == 0] = float("-inf")
+
+    # Cross-entropy on masked logits
+    log_probs = F.log_softmax(masked_logits, dim=-1)
+    return -torch.sum(target_policy * log_probs, dim=-1).mean()
+```
+
+**This ensures:**
+1. Network learns to put zero probability on illegal moves
+2. Training matches inference behavior
+3. Policy sums to 1.0 over legal moves only (INV-1)
+
+### 5.2 Priority Replay Sampling
+
+Currently: Uniform sampling from replay buffer.
+Required: Prioritized sampling based on TD error or similar.
+
+**Modify `training/src/muzero/replay.py`:**
+- Track priority for each position
+- Sample proportional to priority^alpha
+- Use `config.replay.priority_alpha`
+
+### 5.3 Minimax Baseline
+
+Implement a simple minimax opponent:
+- Material counting evaluation
+- Depth 2-3 search
+- No pruning needed for baseline
+
+**Location:** `crates/selfplay/src/minimax.rs` or separate `crates/minimax/`
+
+### 5.4 Evaluation Pipeline
+
+**Add to `training/train.py`:**
 ```bash
-# Generate games with random/rollout evaluator
-cargo run -p selfplay -- --games 100 --output data/games/
+uv run python train.py evaluate --opponent minimax --games 100
+```
 
-# Verify Python can load them
-cd training && uv run python -c "from muzero.replay import ReplayBuffer; rb = ReplayBuffer('data/games'); print(rb.load_games())"
+**Logic:**
+1. Load trained ONNX model
+2. Play games: MuZero vs Minimax
+3. Report win/loss/draw statistics
+4. Target: >70% wins for MuZero
 
-# Train on real games
-uv run python train.py train -s 1000
+### 5.5 Training Loop Integration
 
-# Export ONNX
-uv run python train.py export --verify
+Full training loop:
+1. Generate games with current model (or random for bootstrap)
+2. Train on generated games
+3. Export ONNX
+4. Evaluate against minimax
+5. Repeat until >70% win rate
 
-# Verify Rust can load ONNX
-cargo test -p muzero
+### 5.6 Validation
+
+```bash
+# 1. Generate bootstrap games with rollout evaluator
+cargo run -p muzero-selfplay -- --games 500 --simulations 100 --output data/games/bootstrap
+
+# 2. Train with legal moves masking
+cd training && uv run python train.py train -s 5000
+
+# 3. Export ONNX
+uv run python train.py export
+
+# 4. Generate games with trained model
+cargo run -p muzero-selfplay -- --games 100 --simulations 200 --model checkpoints/ --output data/games/iter1
+
+# 5. Evaluate against minimax
+uv run python train.py evaluate --opponent minimax --games 100
+# Expected: >70% win rate
+
+# 6. Iterate: train on new games, re-evaluate
 ```
 
 ---
@@ -88,7 +160,7 @@ cargo check                      # Fast error check
 cargo fmt                        # Format
 cargo clippy --fix --allow-dirty # Lint + autofix
 cargo test                       # Test
-cargo test -p chess perft        # Specific test
+cargo test -p muzero-chess perft # Specific test
 ```
 
 ---
@@ -166,10 +238,10 @@ Plane 20:     All ones (bias plane)
 
 | Constraint | Enforcement |
 |------------|-------------|
-| Policy sums to 1.0 | Type wrapper + softmax |
-| Value in [-1, 1] | Type wrapper + tanh |
+| Policy sums to 1.0 | Mask illegal → softmax (training & inference) |
+| Value in [-1, 1] | tanh output |
 | Same seed → same game | Inject all RNG |
-| All moves legal | Mask at policy output |
+| All moves legal | Mask at policy output (CRITICAL) |
 | No human chess knowledge | Pure self-play |
 
 **Priority: Correctness > Understanding > Speed**
@@ -180,7 +252,7 @@ Plane 20:     All ones (bias plane)
 
 - FEN round-trip: `parse(fen(pos)) == pos`
 - All generated moves are legal (no self-check)
-- Policy valid distribution
+- Policy valid distribution (sums to 1.0 over legal moves)
 - Deterministic replay with seed
 
 ---
@@ -193,8 +265,8 @@ mu-chess/
 │   ├── core/      # Game trait, Policy/Value types
 │   ├── chess/     # Chess engine (bitboards, perft)
 │   ├── mcts/      # Generic MCTS + tic-tac-toe
-│   ├── muzero/    # ONNX inference (Phase 4)
-│   └── selfplay/  # Game generation (Phase 4)
+│   ├── muzero/    # ONNX inference
+│   └── selfplay/  # Game generation
 ├── training/      # PyTorch training pipeline
 │   ├── src/muzero/
 │   └── train.py
@@ -204,15 +276,15 @@ mu-chess/
 
 ---
 
-## Start Phase 4
+## Start Phase 5
 
 ```bash
 cd /Users/patrikpersson/Code/sandbox/mu-chess
 
-# 1. Implement observation encoding in chess crate
-# 2. Implement selfplay binary with MessagePack output
-# 3. Generate test games
-# 4. Train on real data
-# 5. Implement ONNX inference in muzero crate
-# 6. Full loop: self-play → train → export → inference
+# 1. Fix legal moves masking in trainer.py
+# 2. Generate bootstrap games
+# 3. Train with fixed masking
+# 4. Implement minimax baseline
+# 5. Evaluate: MuZero vs minimax
+# 6. Iterate until >70% win rate
 ```

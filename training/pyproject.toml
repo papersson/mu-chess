@@ -9,6 +9,7 @@ dependencies = [
     "msgpack>=1.0",
     "tomli>=2.0",
     "tqdm>=4.0",
+    "onnxscript>=0.5.7",
 ]
 
 [dependency-groups]
