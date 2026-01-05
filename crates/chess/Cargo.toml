@@ -1,0 +1,11 @@
+[package]
+name = "muzero-chess"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+muzero-core = { version = "0.1.0", path = "../core" }
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+proptest = "1.9.0"

@@ -1,0 +1,6 @@
+[package]
+name = "muzero-mcts"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

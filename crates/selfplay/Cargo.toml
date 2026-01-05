@@ -1,0 +1,6 @@
+[package]
+name = "muzero-selfplay"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
