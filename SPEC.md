@@ -270,12 +270,12 @@ muzero-chess/
 │   ├── mcts/                  # Generic MCTS
 │   ├── muzero/                # Inference (ort)
 │   └── selfplay/              # Binary: parallel game gen
-├── python/
+├── training/                  # PyTorch training pipeline
 │   ├── pyproject.toml         # uv project
-│   ├── muzero/
-│   │   ├── networks.py        # PyTorch models
-│   │   ├── trainer.py
-│   │   ├── replay.py
+│   ├── src/muzero/
+│   │   ├── networks.py        # PyTorch models (h, g, f)
+│   │   ├── trainer.py         # Training loop
+│   │   ├── replay.py          # Replay buffer
 │   │   └── export.py          # → ONNX
 │   └── train.py               # Entry point
 ├── data/games/                # MessagePack game files

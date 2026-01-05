@@ -8,9 +8,15 @@ __pycache__/
 *$py.class
 .venv/
 venv/
+**/.venv/
+**/venv/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
+**/.pytest_cache/
+*.egg
+.eggs/
 
 # IDE
 .idea/
@@ -25,4 +31,7 @@ Thumbs.db
 
 # Project specific
 /data/games/*.msgpack
-/checkpoints/*.onnx
+/checkpoints/
+**/checkpoints/
+*.onnx
+*.pt
