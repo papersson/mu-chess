@@ -19,6 +19,12 @@ pub enum MuZeroError {
     #[error("Game is not terminal")]
     NotTerminal,
 
+    #[error("Invalid policy: {0}")]
+    InvalidPolicy(String),
+
+    #[error("Invalid value: {0}")]
+    InvalidValue(String),
+
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
 }
