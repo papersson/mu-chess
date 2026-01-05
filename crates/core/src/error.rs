@@ -1,3 +1,4 @@
+use std::io;
 use thiserror::Error;
 
 /// Errors that can occur in the MuZero system
@@ -17,6 +18,9 @@ pub enum MuZeroError {
 
     #[error("Game is not terminal")]
     NotTerminal,
+
+    #[error("I/O error: {0}")]
+    Io(#[from] io::Error),
 }
 
 /// Convenience Result type for MuZero operations

@@ -1,0 +1,36 @@
+# MuZero Chess Configuration
+# Override via environment: MUZERO_MCTS_NUM_SIMULATIONS=100
+
+[network]
+hidden_dim = 256
+num_res_blocks = 16
+
+[mcts]
+num_simulations = 800
+dirichlet_alpha = 0.3
+exploration_fraction = 0.25
+pb_c_base = 19652
+pb_c_init = 1.25
+
+[training]
+batch_size = 1024
+learning_rate = 0.001
+weight_decay = 0.0001
+unroll_steps = 5
+td_steps = 10
+discount = 1.0
+
+[selfplay]
+games_per_iteration = 100
+num_workers = 4
+temperature = 1.0
+temperature_drop_move = 30
+
+[replay]
+buffer_size = 100000
+priority_alpha = 1.0
+
+[paths]
+data_dir = "data/games"
+checkpoint_dir = "checkpoints"
+config_file = "config.toml"
