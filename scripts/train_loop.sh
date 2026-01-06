@@ -65,24 +65,24 @@ for iter in $(seq 1 "$ITERATIONS"); do
             --output "data/games/iter_$iter"
     fi
 
-    # 2. Train
+    # 2. Train (use absolute paths via environment variables)
     echo ""
     echo "Step 2: Training network..."
     echo "----------------------------------------"
-    cd training
-    uv run python -m muzero.cli train \
+    MUZERO_PATHS_DATA_DIR="$PROJECT_ROOT/data/games" \
+    MUZERO_PATHS_CHECKPOINT_DIR="$PROJECT_ROOT/checkpoints" \
+    uv --directory "$PROJECT_ROOT/training" run python -m muzero.cli train \
         --steps "$TRAIN_STEPS" \
         --checkpoint-interval 1000 \
         --log-interval 100
-    cd "$PROJECT_ROOT"
 
     # 3. Export ONNX
     echo ""
     echo "Step 3: Exporting ONNX model..."
     echo "----------------------------------------"
-    cd training
-    uv run python -m muzero.cli export --verify
-    cd "$PROJECT_ROOT"
+    MUZERO_PATHS_DATA_DIR="$PROJECT_ROOT/data/games" \
+    MUZERO_PATHS_CHECKPOINT_DIR="$PROJECT_ROOT/checkpoints" \
+    uv --directory "$PROJECT_ROOT/training" run python -m muzero.cli export --verify
 
     # 4. Evaluate
     echo ""
