@@ -247,9 +247,7 @@ def encode_action(from_sq: int, to_sq: int, flags: int = 0) -> int:
     return from_sq | (to_sq << 6) | (flags << 12)
 
 
-def create_legal_moves_mask(
-    legal_actions: list[int], action_space_size: int = 65536
-) -> np.ndarray:
+def create_legal_moves_mask(legal_actions: list[int], action_space_size: int = 65536) -> np.ndarray:
     """Create a mask for legal moves.
 
     Args:
@@ -265,9 +263,7 @@ def create_legal_moves_mask(
     return mask
 
 
-def apply_legal_moves_mask(
-    policy_logits: torch.Tensor, legal_mask: torch.Tensor
-) -> torch.Tensor:
+def apply_legal_moves_mask(policy_logits: torch.Tensor, legal_mask: torch.Tensor) -> torch.Tensor:
     """Apply legal moves mask to policy logits.
 
     Sets illegal move logits to -inf so they get zero probability after softmax.

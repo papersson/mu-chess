@@ -19,7 +19,7 @@ Read `SPEC.md` first. It contains all architectural decisions.
 | 2 | Generic MCTS + tic-tac-toe | MCTS plays TTT perfectly | ✅ Done |
 | 3 | Python training pipeline | Loss decreases on synthetic data | ✅ Done |
 | 4 | ONNX export + Rust inference | Full loop works | ✅ Done |
-| 5 | Training + evaluation | Beats minimax >70% | 🔲 Next |
+| 5 | Training + evaluation | Beats minimax >70% | 🔨 Code Complete |
 
 **Do NOT proceed until current phase validates.**
 
@@ -116,22 +116,23 @@ Full training loop:
 
 ```bash
 # 1. Generate bootstrap games with rollout evaluator
-cargo run -p muzero-selfplay -- --games 500 --simulations 100 --output data/games/bootstrap
+cargo run -p muzero-selfplay --release -- generate --games 500 --simulations 100 --output data/games/bootstrap
 
 # 2. Train with legal moves masking
-cd training && uv run python train.py train -s 5000
+cd training && uv run python -m muzero.cli train -s 5000
 
 # 3. Export ONNX
-uv run python train.py export
+uv run python -m muzero.cli export --verify
 
 # 4. Generate games with trained model
-cargo run -p muzero-selfplay -- --games 100 --simulations 200 --model checkpoints/ --output data/games/iter1
+cargo run -p muzero-selfplay --release -- generate --games 100 --simulations 200 --model checkpoints --output data/games/iter1
 
 # 5. Evaluate against minimax
-uv run python train.py evaluate --opponent minimax --games 100
+cargo run -p muzero-selfplay --release -- evaluate --model checkpoints --games 100 --depth 3
 # Expected: >70% win rate
 
-# 6. Iterate: train on new games, re-evaluate
+# 6. Or run the full training loop script
+./scripts/train_loop.sh 5
 ```
 
 ---

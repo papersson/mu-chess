@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
 from tqdm import tqdm
@@ -63,11 +62,12 @@ class MuZeroTrainer:
             weight_decay=config.training.weight_decay,
         )
 
-        # Create replay buffer
+        # Create replay buffer with priority sampling
         self.replay_buffer = ReplayBuffer(
             data_dir=config.paths.data_dir,
             buffer_size=config.replay.buffer_size,
             action_space_size=config.network.action_space_size,
+            priority_alpha=config.replay.priority_alpha,
         )
 
         # Training state
@@ -97,9 +97,7 @@ class MuZeroTrainer:
 
         return metrics
 
-    def _compute_loss(
-        self, batch: TrainingBatch
-    ) -> tuple[torch.Tensor, TrainingMetrics]:
+    def _compute_loss(self, batch: TrainingBatch) -> tuple[torch.Tensor, TrainingMetrics]:
         """Compute the MuZero loss.
 
         L = Σₜ [ L_policy(πₜ, pₜ) + L_value(zₜ, vₜ) + L_reward(uₜ, rₜ) ]
@@ -110,7 +108,6 @@ class MuZeroTrainer:
         Returns:
             Tuple of (loss tensor, metrics)
         """
-        batch_size = batch.observations.shape[0]
         unroll_steps = batch.actions.shape[1]
 
         total_policy_loss = 0.0
@@ -118,9 +115,7 @@ class MuZeroTrainer:
         total_reward_loss = 0.0
 
         # Initial inference on real observation
-        hidden, policy_logits, value = self.network.initial_inference(
-            batch.observations
-        )
+        hidden, policy_logits, value = self.network.initial_inference(batch.observations)
 
         # Loss at t=0
         policy_loss = self._policy_loss(policy_logits, batch.target_policies[:, 0])
@@ -137,17 +132,13 @@ class MuZeroTrainer:
             actions = batch.actions[:, k]
 
             # Recurrent inference
-            hidden, reward, policy_logits, value = self.network.recurrent_inference(
-                hidden, actions
-            )
+            hidden, reward, policy_logits, value = self.network.recurrent_inference(hidden, actions)
 
             # Scale gradient for dynamics (per MuZero paper)
             hidden = scale_gradient(hidden, self.config.training.gradient_scale)
 
             # Losses at step k+1
-            policy_loss = self._policy_loss(
-                policy_logits, batch.target_policies[:, k + 1]
-            )
+            policy_loss = self._policy_loss(policy_logits, batch.target_policies[:, k + 1])
             value_loss = self._value_loss(value, batch.target_values[:, k + 1])
             reward_loss = self._reward_loss(reward, batch.target_rewards[:, k])
 
@@ -171,22 +162,41 @@ class MuZeroTrainer:
     def _policy_loss(
         self, policy_logits: torch.Tensor, target_policy: torch.Tensor
     ) -> torch.Tensor:
-        """Compute policy loss (cross-entropy).
+        """Compute policy loss with legal move masking.
+
+        Per SPEC P3: "Illegal moves MUST be impossible (masking)".
+        This ensures training matches inference behavior where illegal
+        moves are masked before softmax.
 
         Args:
             policy_logits: Predicted policy logits (B, action_space_size)
             target_policy: Target policy distribution (B, action_space_size)
+                           Non-zero values indicate legal moves (from MCTS).
 
         Returns:
             Policy loss
         """
-        # Cross-entropy: -Σ target * log(softmax(logits))
-        log_probs = F.log_softmax(policy_logits, dim=-1)
+        # Derive legal mask from target (target > 0 means legal)
+        # MCTS policy only has non-zero probabilities for visited legal moves
+        legal_mask = (target_policy > 0).float()
+
+        # Apply mask: set illegal logits to -inf before softmax
+        masked_logits = policy_logits.clone()
+        masked_logits[legal_mask == 0] = float("-inf")
+
+        # Handle edge case: if all masked (shouldn't happen), avoid NaN
+        all_masked = legal_mask.sum(dim=-1, keepdim=True) == 0
+        masked_logits = torch.where(
+            all_masked.expand_as(masked_logits),
+            torch.zeros_like(masked_logits),
+            masked_logits,
+        )
+
+        # Cross-entropy on masked logits
+        log_probs = F.log_softmax(masked_logits, dim=-1)
         return -torch.sum(target_policy * log_probs, dim=-1).mean()
 
-    def _value_loss(
-        self, value: torch.Tensor, target_value: torch.Tensor
-    ) -> torch.Tensor:
+    def _value_loss(self, value: torch.Tensor, target_value: torch.Tensor) -> torch.Tensor:
         """Compute value loss (MSE).
 
         Args:
@@ -198,9 +208,7 @@ class MuZeroTrainer:
         """
         return F.mse_loss(value, target_value)
 
-    def _reward_loss(
-        self, reward: torch.Tensor, target_reward: torch.Tensor
-    ) -> torch.Tensor:
+    def _reward_loss(self, reward: torch.Tensor, target_reward: torch.Tensor) -> torch.Tensor:
         """Compute reward loss (MSE).
 
         Args:
@@ -232,7 +240,9 @@ class MuZeroTrainer:
             for _ in range(100):
                 self.replay_buffer.add_game(create_synthetic_game())
 
-        print(f"Training with {len(self.replay_buffer)} positions from {self.replay_buffer.num_games} games")
+        print(
+            f"Training with {len(self.replay_buffer)} positions from {self.replay_buffer.num_games} games"
+        )
         print(f"Device: {self.device}")
 
         progress = tqdm(range(num_steps), desc="Training")

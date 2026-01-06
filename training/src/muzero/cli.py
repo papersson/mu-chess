@@ -81,6 +81,59 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_evaluate(args: argparse.Namespace) -> int:
+    """Evaluate model against minimax baseline."""
+    import subprocess
+
+    config = load_config(args.config)
+
+    print("MuZero Evaluation")
+    print("=" * 40)
+
+    # Determine model directory
+    model_dir = Path(args.model) if args.model else Path(config.paths.checkpoint_dir)
+
+    # Check if ONNX model exists
+    initial_onnx = model_dir / "initial_inference.onnx"
+    if not initial_onnx.exists():
+        print(f"Error: No ONNX model found at {initial_onnx}")
+        print("Run 'muzero-train export' first to export the model.")
+        return 1
+
+    print(f"Model directory: {model_dir}")
+    print(f"Games: {args.games}")
+    print(f"Minimax depth: {args.depth}")
+    print(f"MCTS simulations: {args.simulations}")
+    print()
+
+    # Build the evaluation command
+    cmd = [
+        "cargo",
+        "run",
+        "-p",
+        "muzero-selfplay",
+        "--release",
+        "--",
+        "evaluate",
+        "--model",
+        str(model_dir),
+        "--games",
+        str(args.games),
+        "--depth",
+        str(args.depth),
+        "--simulations",
+        str(args.simulations),
+    ]
+
+    print(f"Running: {' '.join(cmd)}")
+    print()
+
+    # Run the evaluation
+    result = subprocess.run(cmd, cwd=Path(__file__).parent.parent.parent.parent.parent)
+
+    return result.returncode
+
+
 def cmd_test(args: argparse.Namespace) -> int:
     """Test network forward pass with synthetic data."""
     config = load_config(args.config)
@@ -95,9 +148,7 @@ def cmd_test(args: argparse.Namespace) -> int:
 
     # Test initial inference
     print("\nTesting initial_inference...")
-    dummy_obs = torch.randn(
-        4, config.network.num_observation_planes, 8, 8, device=device
-    )
+    dummy_obs = torch.randn(4, config.network.num_observation_planes, 8, 8, device=device)
 
     with torch.no_grad():
         hidden, policy, value = network.initial_inference(dummy_obs)
@@ -212,7 +263,38 @@ def main() -> int:
     )
 
     # Test command
-    test_parser = subparsers.add_parser("test", help="Test network forward pass")
+    subparsers.add_parser("test", help="Test network forward pass")
+
+    # Evaluate command
+    evaluate_parser = subparsers.add_parser(
+        "evaluate", help="Evaluate model against minimax baseline"
+    )
+    evaluate_parser.add_argument(
+        "--model",
+        "-m",
+        type=str,
+        default=None,
+        help="Model directory with ONNX files (default: checkpoints/)",
+    )
+    evaluate_parser.add_argument(
+        "--games",
+        "-g",
+        type=int,
+        default=100,
+        help="Number of games to play",
+    )
+    evaluate_parser.add_argument(
+        "--depth",
+        type=int,
+        default=3,
+        help="Minimax search depth",
+    )
+    evaluate_parser.add_argument(
+        "--simulations",
+        type=int,
+        default=100,
+        help="MCTS simulations per move",
+    )
 
     args = parser.parse_args()
 
@@ -222,6 +304,8 @@ def main() -> int:
         return cmd_export(args)
     elif args.command == "test":
         return cmd_test(args)
+    elif args.command == "evaluate":
+        return cmd_evaluate(args)
     else:
         parser.print_help()
         return 1

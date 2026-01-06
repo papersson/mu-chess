@@ -65,9 +65,7 @@ class RepresentationNetwork(nn.Module):
         self.bn_in = nn.BatchNorm2d(hidden_dim)
 
         # Stack of residual blocks
-        self.res_blocks = nn.ModuleList(
-            [ResidualBlock(hidden_dim) for _ in range(num_res_blocks)]
-        )
+        self.res_blocks = nn.ModuleList([ResidualBlock(hidden_dim) for _ in range(num_res_blocks)])
 
     def forward(self, observation: torch.Tensor) -> torch.Tensor:
         """Encode observation to hidden state.
@@ -123,16 +121,16 @@ class DynamicsNetwork(nn.Module):
         self.bn_in = nn.BatchNorm2d(hidden_dim)
 
         # Residual blocks for state transition
-        self.res_blocks = nn.ModuleList(
-            [ResidualBlock(hidden_dim) for _ in range(num_res_blocks)]
-        )
+        self.res_blocks = nn.ModuleList([ResidualBlock(hidden_dim) for _ in range(num_res_blocks)])
 
         # Reward prediction head
         self.reward_conv = nn.Conv2d(hidden_dim, 1, kernel_size=1)
         self.reward_bn = nn.BatchNorm2d(1)
         self.reward_fc = nn.Linear(64, 1)  # 8x8 = 64
 
-    def _encode_action(self, action: torch.Tensor, batch_size: int, device: torch.device) -> torch.Tensor:
+    def _encode_action(
+        self, action: torch.Tensor, batch_size: int, device: torch.device
+    ) -> torch.Tensor:
         """Encode action indices as spatial planes.
 
         For chess moves encoded in 16-bit format: from(6) | to(6) | flags(4)

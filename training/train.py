@@ -16,7 +16,7 @@ from pathlib import Path
 # Add src to path for development
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from muzero.config import Config, load_config
+from muzero.config import load_config
 from muzero.export import export_to_onnx, verify_onnx_export
 from muzero.networks import MuZeroNetwork
 from muzero.trainer import MuZeroTrainer
@@ -102,9 +102,7 @@ def cmd_test(args: argparse.Namespace) -> int:
 
     # Test initial inference
     print("\nTesting initial_inference...")
-    dummy_obs = torch.randn(
-        4, config.network.num_observation_planes, 8, 8, device=device
-    )
+    dummy_obs = torch.randn(4, config.network.num_observation_planes, 8, 8, device=device)
 
     with torch.no_grad():
         hidden, policy, value = network.initial_inference(dummy_obs)
@@ -219,7 +217,7 @@ def main() -> int:
     )
 
     # Test command
-    test_parser = subparsers.add_parser("test", help="Test network forward pass")
+    subparsers.add_parser("test", help="Test network forward pass")
 
     args = parser.parse_args()
 

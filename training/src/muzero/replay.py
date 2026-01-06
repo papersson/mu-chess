@@ -49,6 +49,7 @@ class TrainingBatch:
     target_policies: torch.Tensor  # (B, K+1, action_space_size)
     target_values: torch.Tensor  # (B, K+1)
     target_rewards: torch.Tensor  # (B, K)
+    sample_indices: list[int] | None = None  # For priority updates
 
     def to(self, device: torch.device) -> TrainingBatch:
         """Move batch to device."""
@@ -58,6 +59,7 @@ class TrainingBatch:
             target_policies=self.target_policies.to(device),
             target_values=self.target_values.to(device),
             target_rewards=self.target_rewards.to(device),
+            sample_indices=self.sample_indices,
         )
 
 
@@ -69,6 +71,7 @@ class ReplayBuffer:
         data_dir: str | Path,
         buffer_size: int = 100000,
         action_space_size: int = 65536,
+        priority_alpha: float = 1.0,
     ) -> None:
         """Initialize the replay buffer.
 
@@ -76,16 +79,22 @@ class ReplayBuffer:
             data_dir: Directory containing game MessagePack files
             buffer_size: Maximum number of games to keep in memory
             action_space_size: Size of the action space for dense policy
+            priority_alpha: Exponent for priority-based sampling (0 = uniform)
         """
         self.data_dir = Path(data_dir)
         self.buffer_size = buffer_size
         self.action_space_size = action_space_size
+        self.priority_alpha = priority_alpha
 
         # Cached games (most recent)
         self.games: list[GameTrajectory] = []
 
         # Index mapping: (game_idx, step_idx) for sampling
         self._position_index: list[tuple[int, int]] = []
+
+        # Priority tracking for prioritized experience replay
+        self._priorities: np.ndarray = np.array([], dtype=np.float32)
+        self._max_priority: float = 1.0
 
     def load_games(self, max_games: int | None = None) -> int:
         """Load games from the data directory.
@@ -100,7 +109,8 @@ class ReplayBuffer:
             return 0
 
         max_games = max_games or self.buffer_size
-        game_files = sorted(self.data_dir.glob("*.msgpack"))[-max_games:]
+        # Search recursively for game files in subdirectories
+        game_files = sorted(self.data_dir.glob("**/*.msgpack"))[-max_games:]
 
         loaded = 0
         for game_file in game_files:
@@ -136,7 +146,7 @@ class ReplayBuffer:
         td_steps: int,
         discount: float = 1.0,
     ) -> TrainingBatch:
-        """Sample a batch of training data.
+        """Sample a batch of training data with optional priority sampling.
 
         Args:
             batch_size: Number of samples in the batch
@@ -150,8 +160,24 @@ class ReplayBuffer:
         if not self._position_index:
             raise RuntimeError("No games in buffer. Call load_games() first.")
 
-        # Sample positions uniformly
-        positions = random.choices(self._position_index, k=batch_size)
+        # Sample positions with priority-based sampling
+        if self.priority_alpha > 0 and len(self._priorities) > 0:
+            # P(i) = p_i^alpha / sum(p^alpha)
+            probs = self._priorities**self.priority_alpha
+            probs_sum = probs.sum()
+            if probs_sum > 0:
+                probs /= probs_sum
+                indices = np.random.choice(
+                    len(self._position_index), size=batch_size, p=probs, replace=True
+                ).tolist()
+            else:
+                # Fallback to uniform if all priorities are zero
+                indices = random.choices(range(len(self._position_index)), k=batch_size)
+        else:
+            # Uniform sampling (priority_alpha = 0)
+            indices = random.choices(range(len(self._position_index)), k=batch_size)
+
+        positions = [self._position_index[i] for i in indices]
 
         observations = []
         actions_list = []
@@ -176,7 +202,28 @@ class ReplayBuffer:
             target_policies=torch.tensor(np.array(target_policies), dtype=torch.float32),
             target_values=torch.tensor(np.array(target_values), dtype=torch.float32),
             target_rewards=torch.tensor(np.array(target_rewards), dtype=torch.float32),
+            sample_indices=indices,
         )
+
+    def update_priorities(
+        self,
+        indices: list[int],
+        td_errors: np.ndarray,
+        epsilon: float = 1e-6,
+    ) -> None:
+        """Update priorities based on TD errors.
+
+        Args:
+            indices: Batch indices that were sampled (from sample_indices)
+            td_errors: Absolute TD errors for each sample
+            epsilon: Small constant for numerical stability
+        """
+        new_priorities = np.abs(td_errors) + epsilon
+        for idx, priority in zip(indices, new_priorities):
+            if 0 <= idx < len(self._priorities):
+                self._priorities[idx] = priority
+        if len(new_priorities) > 0:
+            self._max_priority = max(self._max_priority, float(np.max(new_priorities)))
 
     def _make_sample(
         self,
@@ -211,9 +258,7 @@ class ReplayBuffer:
                     policies[k, action_idx] = prob
 
                 # Value target (n-step return)
-                values[k] = self._compute_n_step_return(
-                    game, step_idx, td_steps, discount
-                )
+                values[k] = self._compute_n_step_return(game, step_idx, td_steps, discount)
 
                 # Action and reward for unroll (not for last policy)
                 if k < unroll_steps:
@@ -264,11 +309,15 @@ class ReplayBuffer:
         return total
 
     def _rebuild_index(self) -> None:
-        """Rebuild the position index for uniform sampling."""
+        """Rebuild the position index and priority array."""
         self._position_index = []
         for game_idx, game in enumerate(self.games):
             for step_idx in range(len(game)):
                 self._position_index.append((game_idx, step_idx))
+
+        # Initialize priorities with max priority for new positions
+        num_positions = len(self._position_index)
+        self._priorities = np.full(num_positions, self._max_priority, dtype=np.float32)
 
     def _load_game(self, path: Path) -> GameTrajectory | None:
         """Load a game from MessagePack file."""
@@ -280,9 +329,7 @@ class ReplayBuffer:
             # Handle observation - could be flattened or pre-encoded
             obs_data = step_data.get("observation", [])
             if isinstance(obs_data, list) and len(obs_data) == NUM_OBSERVATION_PLANES * 64:
-                obs = np.array(obs_data, dtype=np.float32).reshape(
-                    NUM_OBSERVATION_PLANES, 8, 8
-                )
+                obs = np.array(obs_data, dtype=np.float32).reshape(NUM_OBSERVATION_PLANES, 8, 8)
             else:
                 obs = np.zeros((NUM_OBSERVATION_PLANES, 8, 8), dtype=np.float32)
 

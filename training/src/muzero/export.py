@@ -32,9 +32,7 @@ class InitialInferenceWrapper(nn.Module):
         self.representation = network.representation
         self.prediction = network.prediction
 
-    def forward(
-        self, observation: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, observation: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Run initial inference.
 
         Args:
@@ -205,9 +203,7 @@ def verify_onnx_export(
         pt_hidden, pt_policy_logits, pt_value = network.initial_inference(dummy_obs)
         pt_policy = torch.softmax(pt_policy_logits, dim=-1)
 
-    onnx_outputs = initial_session.run(
-        None, {"observation": dummy_obs.numpy()}
-    )
+    onnx_outputs = initial_session.run(None, {"observation": dummy_obs.numpy()})
     onnx_hidden, onnx_policy, onnx_value = onnx_outputs
 
     hidden_match = torch.allclose(pt_hidden, torch.tensor(onnx_hidden), atol=atol)

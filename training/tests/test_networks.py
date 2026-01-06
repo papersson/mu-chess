@@ -170,9 +170,7 @@ class TestMuZeroNetwork:
 
         # Recurrent inference for imagined step
         action = torch.tensor([100, 200])
-        next_hidden, reward, next_policy, next_value = network.recurrent_inference(
-            hidden, action
-        )
+        next_hidden, reward, next_policy, next_value = network.recurrent_inference(hidden, action)
 
         # Verify all outputs are valid
         assert not torch.isnan(hidden).any()
